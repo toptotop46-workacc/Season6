@@ -152,12 +152,111 @@ export class KeyEncryption {
     return false
   }
 
-  // Безопасный ввод пароля (скрытый)
+  // Безопасный ввод пароля (скрытый) с поддержкой Ctrl+C
   static async promptPassword (message: string = 'Введите пароль: '): Promise<string> {
-    const readlineSync = await import('readline-sync')
-    return readlineSync.default.question(message, {
-      hideEchoBack: true,
-      mask: '*'
+    return new Promise<string>((resolve) => {
+      // Флаг для отслеживания завершения
+      let isResolved = false
+      let password = ''
+
+      // Обработчик сигнала SIGINT (Ctrl+C)
+      const sigintHandler = (): void => {
+        if (!isResolved) {
+          isResolved = true
+          // Восстанавливаем нормальный режим stdin
+          if (process.stdin.isRaw) {
+            process.stdin.setRawMode(false)
+          }
+          process.stdin.pause()
+          process.stdout.write('\n\n')
+          console.log('👋 Получен сигнал завершения (Ctrl+C)')
+          console.log('🛑 Остановка приложения...')
+          // Удаляем все обработчики перед выходом
+          cleanup()
+          process.exit(0)
+        }
+      }
+
+      // Обработчик сигнала SIGTERM
+      const sigtermHandler = (): void => {
+        if (!isResolved) {
+          isResolved = true
+          if (process.stdin.isRaw) {
+            process.stdin.setRawMode(false)
+          }
+          process.stdin.pause()
+          process.stdout.write('\n\n')
+          console.log('👋 Получен сигнал завершения (SIGTERM)')
+          console.log('🛑 Остановка приложения...')
+          cleanup()
+          process.exit(0)
+        }
+      }
+
+      // Обработчик нажатий клавиш (объявляем до cleanup)
+      const keyHandler = (char: string): void => {
+        if (isResolved) return
+
+        // Ctrl+C (код 3)
+        if (char === '\u0003' || char === '\x03' || (char.length === 1 && char.charCodeAt(0) === 3)) {
+          sigintHandler()
+          return
+        }
+
+        // Enter
+        if (char === '\r' || char === '\n' || char === '\u000d' || char === '\u000a') {
+          process.stdout.write('\n')
+          cleanup()
+
+          if (!isResolved) {
+            isResolved = true
+            resolve(password)
+          }
+          return
+        }
+
+        // Backspace или Delete
+        if (char === '\u007f' || char === '\b' || char === '\x7f' || char === '\u0008') {
+          if (password.length > 0) {
+            password = password.slice(0, -1)
+            process.stdout.write('\b \b')
+          }
+          return
+        }
+
+        // Обычные печатные символы (ASCII 32-126)
+        if (char.length === 1) {
+          const code = char.charCodeAt(0)
+          if (code >= 32 && code < 127) {
+            password += char
+            process.stdout.write('*')
+          }
+        }
+      }
+
+      // Функция очистки обработчиков
+      const cleanup = (): void => {
+        process.removeListener('SIGINT', sigintHandler)
+        process.removeListener('SIGTERM', sigtermHandler)
+        process.stdin.removeListener('data', keyHandler)
+        if (process.stdin.isRaw) {
+          process.stdin.setRawMode(false)
+        }
+      }
+
+      // Устанавливаем обработчики сигналов ПЕРЕД началом ввода
+      // Используем prependListener чтобы наш обработчик сработал первым
+      process.prependListener('SIGINT', sigintHandler)
+      process.prependListener('SIGTERM', sigtermHandler)
+
+      // Включаем raw mode для скрытого ввода
+      process.stdin.setRawMode(true)
+      process.stdin.resume()
+      process.stdin.setEncoding('utf8')
+
+      process.stdout.write(message)
+
+      process.stdin.on('data', keyHandler)
     })
   }
 

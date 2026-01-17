@@ -14,6 +14,12 @@ import { performSakeFinanceOperations } from './modules/sake-finance.js'
 import { performLiquidityManagement as performStargateLiquidity } from './modules/stargate.js'
 import { performDepositManagement } from './modules/untitled-bank.js'
 import { performRevoke } from './modules/revoke.js'
+import { performRedButtonNoob } from './modules/redbutton-noob.js'
+import { performBonusHarkan } from './modules/bonus_harkan.js'
+import { performBonusVelodrome } from './modules/bonus_velodrome.js'
+import { performBonusWowmax } from './modules/bonus_wowmax.js'
+import { performBonusSurflayer } from './modules/bonus_surflayer.js'
+import { performNFTPods } from './modules/nft_pods.js'
 
 // Интерфейс для результата выполнения модуля
 interface ModuleResult {
@@ -110,6 +116,36 @@ const modules: Record<string, Module> = {
     name: 'Revoke',
     description: 'Отзыв всех апрувов для кошелька',
     execute: performRevoke
+  },
+  'redbutton-noob': {
+    name: 'RedButton Noob',
+    description: 'Выполнение 1-3 транзакций в режиме noob с задержкой 10-20 секунд',
+    execute: performRedButtonNoob
+  },
+  'bonus-harkan': {
+    name: 'Bonus Harkan',
+    description: 'Проверка и выполнение бонусного квеста Harkan',
+    execute: performBonusHarkan
+  },
+  'bonus-velodrome': {
+    name: 'Bonus Velodrome',
+    description: 'Проверка и выполнение бонусного квеста Velodrome',
+    execute: performBonusVelodrome
+  },
+  'bonus-wowmax': {
+    name: 'Bonus WOWMAX',
+    description: 'Проверка и выполнение бонусного квеста WOWMAX',
+    execute: performBonusWowmax
+  },
+  'bonus-surflayer': {
+    name: 'Bonus Surflayer',
+    description: 'Проверка и выполнение бонусного квеста Surflayer',
+    execute: performBonusSurflayer
+  },
+  'nft-pods': {
+    name: 'NFT Pods',
+    description: 'Проверка и минт NFT Pods',
+    execute: performNFTPods
   }
 }
 

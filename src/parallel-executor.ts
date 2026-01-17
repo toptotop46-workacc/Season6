@@ -14,6 +14,12 @@ import { performSakeFinanceOperations } from './modules/sake-finance.js'
 import { performLiquidityManagement as performStargateLiquidity } from './modules/stargate.js'
 import { performDepositManagement } from './modules/untitled-bank.js'
 import { performRevoke } from './modules/revoke.js'
+import { performRedButtonNoob } from './modules/redbutton-noob.js'
+import { performBonusHarkan } from './modules/bonus_harkan.js'
+import { performBonusVelodrome } from './modules/bonus_velodrome.js'
+import { performBonusWowmax } from './modules/bonus_wowmax.js'
+import { performBonusSurflayer } from './modules/bonus_surflayer.js'
+import { performNFTPods } from './modules/nft_pods.js'
 
 // Интерфейс для результата выполнения модуля
 interface ModuleResult {
@@ -100,6 +106,12 @@ export class ParallelExecutor {
   // 🆕 Кэш для приватных ключей - чтобы не запрашивать пароль каждый раз
   private cachedPrivateKeys: `0x${string}`[] | null = null
 
+  // Предвыбранные кошельки для работы (если null - используется автоматический выбор)
+  private preselectedWallets: { privateKey: `0x${string}`, address: string }[] | null = null
+
+  // Исключенные модули (имена модулей, которые не будут использоваться)
+  private excludedModules: string[] = []
+
   // Конфигурация для выбора кошельков
   private readonly WALLET_SELECTION_CONFIG = {
     maxCheckAttempts: 5,        // Максимум батчей для проверки (5 * threadCount кошельков)
@@ -158,11 +170,100 @@ export class ParallelExecutor {
       name: 'Revoke',
       description: 'Отзыв всех апрувов для кошелька',
       execute: performRevoke
+    },
+    {
+      name: 'RedButton Noob',
+      description: 'Выполнение 1-3 транзакций в режиме noob с задержкой 10-20 секунд',
+      execute: performRedButtonNoob
+    },
+    {
+      name: 'Bonus Harkan',
+      description: 'Проверка и выполнение бонусного квеста Harkan',
+      execute: performBonusHarkan
+    },
+    {
+      name: 'Bonus Velodrome',
+      description: 'Проверка и выполнение бонусного квеста Velodrome',
+      execute: performBonusVelodrome
+    },
+    {
+      name: 'Bonus WOWMAX',
+      description: 'Проверка и выполнение бонусного квеста WOWMAX',
+      execute: performBonusWowmax
+    },
+    {
+      name: 'Bonus Surflayer',
+      description: 'Проверка и выполнение бонусного квеста Surflayer',
+      execute: performBonusSurflayer
+    },
+    {
+      name: 'NFT Pods',
+      description: 'Проверка и минт NFT Pods',
+      execute: performNFTPods
     }
   ]
 
   constructor (transactionChecker: TransactionChecker | null) {
     this.transactionChecker = transactionChecker
+  }
+
+  /**
+   * Устанавливает предвыбранные кошельки для работы
+   */
+  setPreselectedWallets (wallets: { privateKey: `0x${string}`, address: string }[]): void {
+    this.preselectedWallets = wallets
+  }
+
+  /**
+   * Очищает предвыбранные кошельки
+   */
+  clearPreselectedWallets (): void {
+    this.preselectedWallets = null
+  }
+
+  /**
+   * Получает список активных (неисключенных) модулей
+   */
+  private getActiveModules (): Module[] {
+    return this.modules.filter(module => !this.excludedModules.includes(module.name))
+  }
+
+  /**
+   * Устанавливает список исключенных модулей
+   */
+  setExcludedModules (moduleNames: string[]): void {
+    // Валидация: должен остаться хотя бы 1 активный модуль
+    const wouldBeActive = this.modules.length - moduleNames.length
+    if (wouldBeActive < 1) {
+      throw new Error('Нельзя исключить все модули. Должен остаться хотя бы 1 активный модуль.')
+    }
+
+    // Фильтруем только существующие имена модулей
+    const validModuleNames = this.modules.map(m => m.name)
+    const filteredNames = moduleNames.filter(name => validModuleNames.includes(name))
+
+    this.excludedModules = filteredNames
+  }
+
+  /**
+   * Очищает список исключенных модулей
+   */
+  clearExcludedModules (): void {
+    this.excludedModules = []
+  }
+
+  /**
+   * Возвращает список исключенных модулей
+   */
+  getExcludedModules (): string[] {
+    return [...this.excludedModules]
+  }
+
+  /**
+   * Возвращает список всех доступных модулей
+   */
+  getAvailableModules (): Module[] {
+    return [...this.modules]
   }
 
   /**
@@ -195,6 +296,46 @@ export class ParallelExecutor {
    */
   private async selectRandomWalletsForIteration (threadCount: number): Promise<void> {
     try {
+      // Если есть предвыбранные кошельки, используем их
+      if (this.preselectedWallets && this.preselectedWallets.length > 0) {
+        console.log(`Используем ${this.preselectedWallets.length} предвыбранных кошельков...`)
+
+        // Ограничиваем количество кошельков количеством потоков
+        const actualThreadCount = Math.min(threadCount, this.preselectedWallets.length)
+
+        if (actualThreadCount < threadCount) {
+          console.log(`⚠️  Предвыбранных кошельков (${actualThreadCount}) меньше чем потоков (${threadCount})`)
+          console.log(`📊 Будет запущено ${actualThreadCount} потоков`)
+        }
+
+        // Приоритет кошелькам без транзакций сегодня
+        const walletsNeedingStreak = this.getWalletsNeedingStreakToday(this.preselectedWallets)
+
+        if (walletsNeedingStreak.length > 0) {
+          // Сначала берем кошельки, которым нужен streak
+          const priorityCount = Math.min(actualThreadCount, walletsNeedingStreak.length)
+          this.currentIterationWallets = walletsNeedingStreak.slice(0, priorityCount)
+
+          // Если остались свободные потоки, добавляем остальные кошельки
+          if (priorityCount < actualThreadCount) {
+            const remaining = this.preselectedWallets
+              .filter(w => !walletsNeedingStreak.includes(w))
+              .slice(0, actualThreadCount - priorityCount)
+            this.currentIterationWallets.push(...remaining)
+          }
+
+          console.log(`🎯 Приоритет streak: ${walletsNeedingStreak.length} кошельков нуждаются в транзакции сегодня`)
+        } else {
+          // Все кошельки уже сделали streak сегодня, работаем в обычном режиме
+          this.currentIterationWallets = this.preselectedWallets.slice(0, actualThreadCount)
+          console.log('✅ Все кошельки выполнили streak сегодня, работаем в обычном режиме')
+        }
+
+        console.log(`✅ Выбрано ${this.currentIterationWallets.length} кошельков для работы`)
+        return
+      }
+
+      // Иначе используем автоматический выбор активных кошельков
       console.log(`Выбираем ${threadCount} активных кошельков...`)
 
       // 1. Получаем все приватные ключи
@@ -244,7 +385,7 @@ export class ParallelExecutor {
       // 4. Если не нашли достаточно активных кошельков после всех проверок
       if (allActiveWallets.length === 0) {
         console.log(`⚠️  Не найдено активных кошельков после проверки ${checkedCount} кошельков`)
-        console.log(`📊 Все проверенные кошельки имеют >= 81 поинтов, пропускаем итерацию`)
+        console.log('📊 Все проверенные кошельки имеют >= 81 поинтов, пропускаем итерацию')
         this.currentIterationWallets = []
         return
       }
@@ -378,6 +519,18 @@ export class ParallelExecutor {
   private async executeIteration (threadCount: number): Promise<void> {
     const startTime = Date.now()
 
+    // Проверяем, что есть хотя бы 1 активный модуль
+    const activeModules = this.getActiveModules()
+    if (activeModules.length === 0) {
+      throw new Error('Нет доступных модулей для работы. Все модули исключены.')
+    }
+
+    // Показываем информацию об исключенных модулях, если они есть
+    if (this.excludedModules.length > 0) {
+      console.log(`\n📋 Исключенные модули: ${this.excludedModules.join(', ')}`)
+      console.log(`📊 Активных модулей: ${activeModules.length} из ${this.modules.length}`)
+    }
+
     // Выбираем случайные кошельки для текущей итерации
     await this.selectRandomWalletsForIteration(threadCount)
 
@@ -437,7 +590,9 @@ export class ParallelExecutor {
     this.showIterationResults(threadResults, successCount, errorCount, totalTime)
 
     // Обновляем смещение для следующей итерации (циклический перебор модулей)
-    this.moduleOffset = (this.moduleOffset + threadCount) % this.modules.length
+    if (activeModules.length > 0) {
+      this.moduleOffset = (this.moduleOffset + threadCount) % activeModules.length
+    }
   }
 
   /**
@@ -784,9 +939,16 @@ export class ParallelExecutor {
    * Выбирает уникальный модуль для потока с циклическим перебором
    */
   private getUniqueModule (threadId: number): Module {
+    const activeModules = this.getActiveModules()
+
+    // Проверка: должен быть хотя бы 1 активный модуль
+    if (activeModules.length === 0) {
+      throw new Error('Нет доступных модулей для работы. Все модули исключены.')
+    }
+
     // Циклическое распределение с учетом смещения по итерациям
-    const moduleIndex = (this.moduleOffset + threadId - 1) % this.modules.length
-    const selectedModule = this.modules[moduleIndex]!
+    const moduleIndex = (this.moduleOffset + threadId - 1) % activeModules.length
+    const selectedModule = activeModules[moduleIndex]!
 
     return selectedModule
   }

@@ -45,6 +45,7 @@ interface WalletStatisticsResult {
     wowmax: string
   }
   pointsCount?: number
+  originalIndex?: number // Исходный индекс кошелька для правильной нумерации
 }
 
 interface ApiResponseData {
@@ -86,9 +87,22 @@ export class MenuSystem {
   }
 
   /**
+   * Обработчик отмены (Ctrl+C) для prompts
+   */
+  private handleCancel (): void {
+    console.log('\n\n👋 Получен сигнал завершения (Ctrl+C)')
+    console.log('🛑 Остановка приложения...')
+    console.log('✅ До свидания!')
+    process.exit(0)
+  }
+
+  /**
    * Показывает главное меню
    */
   async showMainMenu (): Promise<void> {
+    // Сбрасываем предвыбранные кошельки и исключенные модули при начале новой сессии
+    this.parallelExecutor.clearPreselectedWallets()
+    this.parallelExecutor.clearExcludedModules()
     try {
       const response = await prompts({
         type: 'select',
@@ -98,7 +112,7 @@ export class MenuSystem {
           {
             title: '🚀 Запустить работу',
             value: 'start',
-            description: 'Запустить автоматизацию с настройкой потоков (1-10, каждый поток - уникальный модуль)'
+            description: 'Запустить автоматизацию с настройкой потоков (каждый поток - уникальный модуль)'
           },
           {
             title: '💰 Сбор балансов в ETH',
@@ -122,17 +136,23 @@ export class MenuSystem {
           }
         ],
         initial: 0
-      })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
 
-      if (response.action === 'start') {
+      if (!response || !response['action']) {
+        this.handleCancel()
+        return
+      }
+
+      if (response['action'] === 'start') {
         await this.showThreadSelectionMenu()
-      } else if (response.action === 'collect') {
+      } else if (response['action'] === 'collect') {
         await this.executeCollectorForAllWallets()
-      } else if (response.action === 'topup') {
+      } else if (response['action'] === 'topup') {
         await this.showTopupMenu()
-      } else if (response.action === 'stats') {
+      } else if (response['action'] === 'stats') {
         await this.showStatistics()
-      } else if (response.action === 'exit') {
+      } else if (response['action'] === 'exit') {
         console.log('\n👋 До свидания!')
         process.exit(0)
       } else {
@@ -150,28 +170,139 @@ export class MenuSystem {
    */
   private async showThreadSelectionMenu (): Promise<void> {
     try {
+      // Получаем количество доступных модулей для динамического ограничения
+      const availableModules = this.parallelExecutor.getAvailableModules()
+      const maxThreads = availableModules.length
+
       console.log('\n🚀 ЗАПУСК РАБОТЫ')
       console.log('='.repeat(80))
-      console.log('Введите количество потоков (1-10):')
-      console.log('📝 Если потоков > 1, каждый будет выполнять уникальный модуль (максимум 10)')
+      console.log(`Введите количество потоков (1-${maxThreads}):`)
+      console.log(`📝 Если потоков > 1, каждый будет выполнять уникальный модуль (максимум ${maxThreads})`)
 
       const response = await prompts({
         type: 'number',
         name: 'threadCount',
         message: 'Количество потоков:',
         min: 1,
-        max: 10,
-        initial: 10,
+        max: maxThreads,
+        initial: maxThreads,
         validate: (value: number) => {
-          if (value < 1 || value > 10) {
-            return 'Количество потоков должно быть от 1 до 10'
+          if (value < 1 || value > maxThreads) {
+            return `Количество потоков должно быть от 1 до ${maxThreads}`
           }
           return true
         }
-      })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
 
-      if (response.threadCount) {
-        console.log(`\n✅ Выбрано ${response.threadCount} потоков`)
+      if (!response || response['threadCount'] === undefined) {
+        this.handleCancel()
+        return
+      }
+
+      if (response['threadCount']) {
+        console.log(`\n✅ Выбрано ${response['threadCount']} потоков`)
+
+        // Выбор режима работы с кошельками
+        const walletModeResponse = await prompts({
+          type: 'select',
+          name: 'walletMode',
+          message: 'Выберите режим работы с кошельками:',
+          choices: [
+            {
+              title: 'Все кошельки',
+              value: 'all',
+              description: 'Автоматический выбор активных кошельков (текущее поведение)'
+            },
+            {
+              title: 'Выбрать кошельки',
+              value: 'select',
+              description: 'Ручной выбор конкретных кошельков для работы'
+            }
+          ],
+          initial: 0
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any)
+
+        if (!walletModeResponse || !walletModeResponse['walletMode']) {
+          this.handleCancel()
+          return
+        }
+
+        if (!walletModeResponse['walletMode']) {
+          console.log('\n❌ Неверный выбор. Попробуйте снова.')
+          await this.showThreadSelectionMenu()
+          return
+        }
+
+        let selectedWallets: { privateKey: `0x${string}`, address: string }[] | null = null
+
+        if (walletModeResponse['walletMode'] === 'select') {
+          // Показываем меню выбора кошельков
+          selectedWallets = await this.showWalletSelectionMenu()
+          if (!selectedWallets || selectedWallets.length === 0) {
+            console.log('\n❌ Не выбрано ни одного кошелька. Операция отменена.')
+            await this.showMainMenu()
+            return
+          }
+          console.log(`\n✅ Выбрано ${selectedWallets.length} кошельков для работы`)
+        }
+
+        // Выбор модулей для работы
+        const moduleSelectionResponse = await prompts({
+          type: 'select',
+          name: 'selectModules',
+          message: 'Выбрать модули для работы?',
+          choices: [
+            {
+              title: 'Все модули',
+              value: 'no',
+              description: 'Использовать все модули (текущее поведение)'
+            },
+            {
+              title: 'Выбрать модули',
+              value: 'yes',
+              description: 'Выбрать модули, которые будут использоваться'
+            }
+          ],
+          initial: 0
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any)
+
+        if (!moduleSelectionResponse || moduleSelectionResponse['selectModules'] === undefined) {
+          this.handleCancel()
+          return
+        }
+
+        if (moduleSelectionResponse['selectModules'] === 'yes') {
+          const selectedModules = await this.showModuleSelectionMenu()
+          if (selectedModules === null || selectedModules.length === 0) {
+            console.log('\n❌ Не выбрано ни одного модуля. Операция отменена.')
+            await this.showMainMenu()
+            return
+          }
+
+          try {
+            // Исключаем все модули, кроме выбранных
+            const allModules = this.parallelExecutor.getAvailableModules()
+            const excludedModules = allModules
+              .map(m => m.name)
+              .filter(name => !selectedModules.includes(name))
+
+            this.parallelExecutor.setExcludedModules(excludedModules)
+            console.log(`\n✅ Выбрано ${selectedModules.length} модулей для работы: ${selectedModules.join(', ')}`)
+            if (excludedModules.length > 0) {
+              console.log(`📋 Исключено ${excludedModules.length} модулей: ${excludedModules.join(', ')}`)
+            }
+          } catch (error) {
+            console.error('\n❌ Ошибка при установке модулей:', error instanceof Error ? error.message : 'Неизвестная ошибка')
+            await this.showMainMenu()
+            return
+          }
+        } else {
+          // Очищаем исключения модулей (используем все модули)
+          this.parallelExecutor.clearExcludedModules()
+        }
 
         // 🆕 Запрос максимальной цены газа
         const gasResponse = await prompts({
@@ -187,24 +318,37 @@ export class MenuSystem {
             if (value > 100) return 'Максимальное значение: 100 Gwei'
             return true
           }
-        })
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any)
 
-        if (!gasResponse.maxGasPrice) {
+        if (!gasResponse || gasResponse['maxGasPrice'] === undefined) {
+          this.handleCancel()
+          return
+        }
+
+        if (!gasResponse['maxGasPrice']) {
           console.log('\n❌ Неверное значение газа. Попробуйте снова.')
           await this.showThreadSelectionMenu()
           return
         }
 
         // Создаем GasChecker
-        const gasChecker = new GasChecker(gasResponse.maxGasPrice)
-        console.log(`⛽ Лимит газа установлен: ${gasResponse.maxGasPrice} Gwei`)
+        const gasChecker = new GasChecker(gasResponse['maxGasPrice'])
+        console.log(`⛽ Лимит газа установлен: ${gasResponse['maxGasPrice']} Gwei`)
+
+        // Устанавливаем предвыбранные кошельки, если они были выбраны
+        if (selectedWallets) {
+          this.parallelExecutor.setPreselectedWallets(selectedWallets)
+        } else {
+          this.parallelExecutor.clearPreselectedWallets()
+        }
 
         console.log('🚀 Запуск параллельного выполнения...')
         console.log('⚠️  Для остановки нажмите Ctrl+C')
         console.log('='.repeat(80))
 
         // Запускаем параллельное выполнение с проверкой газа
-        await this.parallelExecutor.executeInfiniteLoop(response.threadCount, gasChecker)
+        await this.parallelExecutor.executeInfiniteLoop(response['threadCount'], gasChecker)
       } else {
         console.log('\n❌ Неверный выбор. Попробуйте снова.')
         await this.showThreadSelectionMenu()
@@ -212,6 +356,140 @@ export class MenuSystem {
     } catch (error) {
       console.error('\n❌ Ошибка в меню выбора потоков:', error instanceof Error ? error.message : 'Неизвестная ошибка')
       process.exit(1)
+    }
+  }
+
+  /**
+   * Показывает меню выбора кошельков для работы
+   */
+  private async showWalletSelectionMenu (): Promise<{ privateKey: `0x${string}`, address: string }[] | null> {
+    try {
+      console.log('\n📋 ВЫБОР КОШЕЛЬКОВ')
+      console.log('='.repeat(80))
+
+      // Получаем все приватные ключи
+      const allPrivateKeys = await this.getAllPrivateKeys()
+
+      if (allPrivateKeys.length === 0) {
+        console.log('❌ Не найдено приватных ключей')
+        return null
+      }
+
+      // Создаем список кошельков с адресами
+      const wallets = allPrivateKeys.map((privateKey, index) => {
+        const account = privateKeyToAccount(privateKey)
+        return {
+          privateKey,
+          address: account.address,
+          index: index + 1
+        }
+      })
+
+      // Формируем выбор для prompts
+      const choices = wallets.map((wallet) => ({
+        title: `${wallet.index}. ${wallet.address}`,
+        value: wallet.address,
+        description: `Кошелек #${wallet.index}`
+      }))
+
+      // Показываем меню выбора
+      const response = await prompts({
+        type: 'multiselect',
+        name: 'selectedAddresses',
+        message: `Выберите кошельки для работы (найдено ${wallets.length}):`,
+        choices: choices,
+        hint: '- Пробел для выбора, Enter для подтверждения'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+
+      if (!response) {
+        this.handleCancel()
+        return null
+      }
+
+      if (!response['selectedAddresses']) {
+        return null
+      }
+
+      // Используем выбранные адреса
+      const selectedAddresses: string[] = response['selectedAddresses'] as string[]
+
+      if (selectedAddresses.length === 0) {
+        return null
+      }
+
+      // Преобразуем адреса в объекты с privateKey и address
+      const selectedWallets = selectedAddresses.map(address => {
+        const wallet = wallets.find(w => w.address === address)
+        if (!wallet) {
+          throw new Error(`Кошелек с адресом ${address} не найден`)
+        }
+        return {
+          privateKey: wallet.privateKey,
+          address: wallet.address
+        }
+      })
+
+      return selectedWallets
+
+    } catch (error) {
+      console.error('\n❌ Ошибка при выборе кошельков:', error instanceof Error ? error.message : 'Неизвестная ошибка')
+      return null
+    }
+  }
+
+  /**
+   * Показывает меню выбора модулей для работы
+   */
+  private async showModuleSelectionMenu (): Promise<string[] | null> {
+    try {
+      console.log('\n📋 ВЫБОР МОДУЛЕЙ ДЛЯ РАБОТЫ')
+      console.log('='.repeat(80))
+
+      // Получаем все доступные модули
+      const allModules = this.parallelExecutor.getAvailableModules()
+
+      if (allModules.length === 0) {
+        console.log('❌ Не найдено модулей')
+        return null
+      }
+
+      // Формируем выбор для prompts
+      const choices = allModules.map((module) => ({
+        title: module.name,
+        value: module.name,
+        description: module.description
+      }))
+
+      // Показываем меню выбора
+      const response = await prompts({
+        type: 'multiselect',
+        name: 'selectedModules',
+        message: `Выберите модули для работы (найдено ${allModules.length}):`,
+        choices: choices,
+        min: 1,
+        hint: '- Пробел для выбора, Enter для подтверждения'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+
+      if (!response) {
+        this.handleCancel()
+        return null
+      }
+
+      if (!response['selectedModules'] || response['selectedModules'].length === 0) {
+        return null
+      }
+
+      // Возвращаем выбранные модули
+      const selectedModules = response['selectedModules'] as string[]
+
+      // Валидация: должен быть выбран хотя бы 1 модуль (уже проверено через min: 1)
+      return selectedModules
+
+    } catch (error) {
+      console.error('\n❌ Ошибка при выборе модулей для работы:', error instanceof Error ? error.message : 'Неизвестная ошибка')
+      return null
     }
   }
 
@@ -237,17 +515,23 @@ export class MenuSystem {
           if (value > 100) return 'Максимальное значение: 100 Gwei'
           return true
         }
-      })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
 
-      if (!gasResponse.maxGasPrice) {
+      if (!gasResponse || gasResponse['maxGasPrice'] === undefined) {
+        this.handleCancel()
+        return
+      }
+
+      if (!gasResponse['maxGasPrice']) {
         console.log('\n❌ Неверное значение газа. Попробуйте снова.')
         await this.showMainMenu()
         return
       }
 
       // Создаем GasChecker
-      const gasChecker = new GasChecker(gasResponse.maxGasPrice)
-      console.log(`⛽ Лимит газа установлен: ${gasResponse.maxGasPrice} Gwei`)
+      const gasChecker = new GasChecker(gasResponse['maxGasPrice'])
+      console.log(`⛽ Лимит газа установлен: ${gasResponse['maxGasPrice']} Gwei`)
 
       // Получаем все приватные ключи
       const privateKeys = await this.getAllPrivateKeys()
@@ -412,6 +696,7 @@ export class MenuSystem {
 
     // Настройка колонок
     worksheet.columns = [
+      { header: '№', key: 'number', width: 5 },
       { header: 'Адрес кошелька', key: 'address', width: 45 },
       { header: 'Сезон 6', key: 'season6', width: 12 },
       { header: 'Harkan', key: 'harkan', width: 15 },
@@ -436,9 +721,13 @@ export class MenuSystem {
       right: { style: 'thin' }
     }
 
+    // Сортируем результаты по исходному индексу для правильной нумерации
+    const sortedResults = [...results].sort((a, b) => (a.originalIndex ?? 0) - (b.originalIndex ?? 0))
+
     // Добавление данных с цветовой индикацией
-    results.forEach((result) => {
+    sortedResults.forEach((result) => {
       const row = worksheet.addRow({
+        number: (result.originalIndex ?? 0) + 1,
         address: result.address,
         season6: result.season6Score ?? 0,
         harkan: result.bonusQuests.harkan,
@@ -525,6 +814,8 @@ export class MenuSystem {
       formatQuestCell(row.getCell('wowmax'), result.bonusQuests.wowmax)
 
       // Выравнивание числовых значений
+      const numberCell = row.getCell('number')
+      numberCell.alignment = { horizontal: 'center' }
       season6Cell.alignment = { horizontal: 'center' }
     })
 
@@ -809,7 +1100,8 @@ export class MenuSystem {
 
         // Обрабатываем батч параллельно
         const batchResults = await Promise.all(
-          batch.map(async (address) => {
+          batch.map(async (address, batchIndex) => {
+            const originalIndex = i + batchIndex // Исходный индекс кошелька в массиве addresses
             try {
               // Параллельно получаем данные из обоих API
               const [walletData, bonusData] = await Promise.all([
@@ -836,7 +1128,8 @@ export class MenuSystem {
                     surflayer: 'N/A',
                     velodrome: 'N/A',
                     wowmax: 'N/A'
-                  }
+                  },
+                  originalIndex
                 }
               }
 
@@ -874,7 +1167,8 @@ export class MenuSystem {
                 status,
                 season6Score,
                 bonusQuests,
-                pointsCount: season6Score
+                pointsCount: season6Score,
+                originalIndex
               }
             } catch (error) {
               completedCount++
@@ -890,7 +1184,8 @@ export class MenuSystem {
                   surflayer: 'N/A',
                   velodrome: 'N/A',
                   wowmax: 'N/A'
-                }
+                },
+                originalIndex
               }
             }
           })
@@ -907,13 +1202,17 @@ export class MenuSystem {
       // Завершаем прогресс-бар
       console.log('\n')
 
+      // Сортируем результаты по исходному индексу для правильной нумерации
+      results.sort((a, b) => (a.originalIndex ?? 0) - (b.originalIndex ?? 0))
+
       // Заголовок таблицы
-      console.log('┌─────────────────────────────────────────────────────────┬─────────┬──────────────┬──────────────┬──────────────┬──────────────┐')
-      console.log('│ Адрес кошелька                                          │ Сезон 6 │ Harkan       │ SurfLayer    │ Velodrome    │ WOWMAX       │')
-      console.log('├─────────────────────────────────────────────────────────┼─────────┼──────────────┼──────────────┼──────────────┼──────────────┤')
+      console.log('┌──────┬─────────────────────────────────────────────────────────┬─────────┬──────────────┬──────────────┬──────────────┬──────────────┐')
+      console.log('│   №  │ Адрес кошелька                                          │ Сезон 6 │ Harkan       │ SurfLayer    │ Velodrome    │ WOWMAX       │')
+      console.log('├──────┼─────────────────────────────────────────────────────────┼─────────┼──────────────┼──────────────┼──────────────┼──────────────┤')
 
       // Данные таблицы
       results.forEach((result) => {
+        const walletNumber = ((result.originalIndex ?? 0) + 1).toString().padStart(3) + ' '
         const address = result.address.length > 50 ? result.address.substring(0, 47) + '...' : result.address
 
         // Форматируем Season 6 с цветовой индикацией
@@ -959,10 +1258,10 @@ export class MenuSystem {
         const velodrome = formatQuest(result.bonusQuests.velodrome)
         const wowmax = formatQuest(result.bonusQuests.wowmax)
 
-        console.log(`│ ${address.padEnd(55)} │ ${season6} │ ${harkan} │ ${surflayer} │ ${velodrome} │ ${wowmax} │`)
+        console.log(`│ ${walletNumber} │ ${address.padEnd(55)} │ ${season6} │ ${harkan} │ ${surflayer} │ ${velodrome} │ ${wowmax} │`)
       })
 
-      console.log('└─────────────────────────────────────────────────────────┴─────────┴──────────────┴──────────────┴──────────────┴──────────────┘')
+      console.log('└──────┴─────────────────────────────────────────────────────────┴─────────┴──────────────┴──────────────┴──────────────┴──────────────┘')
 
       console.log('='.repeat(80))
 
@@ -972,9 +1271,15 @@ export class MenuSystem {
         name: 'value',
         message: '💾 Экспортировать статистику в Excel файл?',
         initial: true
-      })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
 
-      if (exportResponse.value) {
+      if (!exportResponse) {
+        this.handleCancel()
+        return
+      }
+
+      if (exportResponse['value']) {
         try {
           console.log('\n📝 Создание Excel файла...')
           const filePath = await this.exportStatisticsToExcel(results)
@@ -1027,7 +1332,13 @@ export class MenuSystem {
         initial: 10,
         min: 1,
         validate: (value: number) => value > 0 ? true : 'Сумма должна быть больше 0'
-      })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+
+      if (!minAmount || minAmount['value'] === undefined) {
+        this.handleCancel()
+        return
+      }
 
       // 2. Максимальная сумма
       const maxAmount = await prompts({
@@ -1035,9 +1346,15 @@ export class MenuSystem {
         name: 'value',
         message: 'Введите максимальную сумму пополнения (USD):',
         initial: 50,
-        min: minAmount.value,
-        validate: (value: number) => value >= minAmount.value ? true : 'Максимальная сумма должна быть больше или равна минимальной'
-      })
+        min: minAmount['value'],
+        validate: (value: number) => value >= minAmount['value'] ? true : 'Максимальная сумма должна быть больше или равна минимальной'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+
+      if (!maxAmount || maxAmount['value'] === undefined) {
+        this.handleCancel()
+        return
+      }
 
       // 3. Минимальная задержка
       const minDelay = await prompts({
@@ -1047,7 +1364,13 @@ export class MenuSystem {
         initial: 2,
         min: 1,
         validate: (value: number) => value >= 1 ? true : 'Задержка должна быть не менее 1 минуты'
-      })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+
+      if (!minDelay || minDelay['value'] === undefined) {
+        this.handleCancel()
+        return
+      }
 
       // 4. Максимальная задержка
       const maxDelay = await prompts({
@@ -1055,9 +1378,15 @@ export class MenuSystem {
         name: 'value',
         message: 'Введите максимальную задержку между кошельками (минуты):',
         initial: 5,
-        min: minDelay.value,
-        validate: (value: number) => value >= minDelay.value ? true : 'Максимальная задержка должна быть больше или равна минимальной'
-      })
+        min: minDelay['value'],
+        validate: (value: number) => value >= minDelay['value'] ? true : 'Максимальная задержка должна быть больше или равна минимальной'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+
+      if (!maxDelay || maxDelay['value'] === undefined) {
+        this.handleCancel()
+        return
+      }
 
       // 5. 🆕 Запрос максимальной цены газа
       const gasResponse = await prompts({
@@ -1073,9 +1402,15 @@ export class MenuSystem {
           if (value > 100) return 'Максимальное значение: 100 Gwei'
           return true
         }
-      })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
 
-      if (!gasResponse.maxGasPrice) {
+      if (!gasResponse || gasResponse['maxGasPrice'] === undefined) {
+        this.handleCancel()
+        return
+      }
+
+      if (!gasResponse['maxGasPrice']) {
         console.log('\n❌ Неверное значение газа. Попробуйте снова.')
         await this.showTopupMenu()
         return
@@ -1083,9 +1418,9 @@ export class MenuSystem {
 
       // 6. Подтверждение и запуск
       console.log('\n📊 Настройки пополнения:')
-      console.log(`💰 Сумма: $${minAmount.value} - $${maxAmount.value}`)
-      console.log(`⏰ Задержки: ${minDelay.value} - ${maxDelay.value} минут`)
-      console.log(`⛽ Лимит газа: ${gasResponse.maxGasPrice} Gwei`)
+      console.log(`💰 Сумма: $${minAmount['value']} - $${maxAmount['value']}`)
+      console.log(`⏰ Задержки: ${minDelay['value']} - ${maxDelay['value']} минут`)
+      console.log(`⛽ Лимит газа: ${gasResponse['maxGasPrice']} Gwei`)
       console.log('='.repeat(80))
 
       const confirm = await prompts({
@@ -1093,14 +1428,20 @@ export class MenuSystem {
         name: 'value',
         message: 'Запустить пополнение с этими настройками?',
         initial: true
-      })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
 
-      if (confirm.value) {
+      if (!confirm) {
+        this.handleCancel()
+        return
+      }
+
+      if (confirm['value']) {
         // Создаем GasChecker
-        const gasChecker = new GasChecker(gasResponse.maxGasPrice)
-        console.log(`⛽ Лимит газа установлен: ${gasResponse.maxGasPrice} Gwei`)
+        const gasChecker = new GasChecker(gasResponse['maxGasPrice'])
+        console.log(`⛽ Лимит газа установлен: ${gasResponse['maxGasPrice']} Gwei`)
 
-        await this.executeTopupForAllWallets(minAmount.value, maxAmount.value, minDelay.value, maxDelay.value, gasChecker)
+        await this.executeTopupForAllWallets(minAmount['value'], maxAmount['value'], minDelay['value'], maxDelay['value'], gasChecker)
       } else {
         console.log('❌ Пополнение отменено')
         await this.showMainMenu()

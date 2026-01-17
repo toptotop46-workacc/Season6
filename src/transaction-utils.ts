@@ -267,6 +267,43 @@ export async function safeWriteContract (
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка'
+
+      // Пытаемся извлечь hash из ошибки, если транзакция была отправлена
+      // Viem иногда возвращает hash в ошибке, если транзакция была отправлена
+      let extractedHash: `0x${string}` | undefined
+
+      if (error && typeof error === 'object') {
+        // Проверяем различные возможные места, где может быть hash
+        const errorObj = error as Record<string, unknown>
+        if (errorObj['hash'] && typeof errorObj['hash'] === 'string' && errorObj['hash'].startsWith('0x')) {
+          extractedHash = errorObj['hash'] as `0x${string}`
+        } else if (errorObj['data'] && typeof errorObj['data'] === 'object') {
+          const data = errorObj['data'] as Record<string, unknown>
+          if (data['hash'] && typeof data['hash'] === 'string' && data['hash'].startsWith('0x')) {
+            extractedHash = data['hash'] as `0x${string}`
+          }
+        } else if (errorObj['cause'] && typeof errorObj['cause'] === 'object') {
+          const cause = errorObj['cause'] as Record<string, unknown>
+          if (cause['hash'] && typeof cause['hash'] === 'string' && cause['hash'].startsWith('0x')) {
+            extractedHash = cause['hash'] as `0x${string}`
+          }
+        }
+
+        // Также проверяем сообщение об ошибке на наличие hash
+        if (!extractedHash && errorMessage) {
+          const hashMatch = errorMessage.match(/0x[a-fA-F0-9]{64}/)
+          if (hashMatch) {
+            extractedHash = hashMatch[0] as `0x${string}`
+          }
+        }
+      }
+
+      // Если нашли hash в ошибке, значит транзакция была отправлена
+      if (extractedHash) {
+        logger.info(`Транзакция была отправлена, hash извлечен из ошибки: ${extractedHash}`)
+        return { hash: extractedHash, success: true }
+      }
+
       // Если это ошибка nonce, не логируем полную ошибку
       if (errorMessage.includes('nonce') || errorMessage.includes('replacement')) {
         logger.warn('Ошибка nonce, ждем 30 секунд...')
