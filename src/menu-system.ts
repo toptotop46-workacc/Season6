@@ -5,6 +5,7 @@ import { SoneiumCollector } from './modules/collector.js'
 import { performWalletTopup } from './wallet-topup.js'
 import { GasChecker } from './gas-checker.js'
 import { ProxyManager } from './proxy-manager.js'
+import { performSeason5BadgeMint } from './modules/season5-badge-mint.js'
 import axios from 'axios'
 import ExcelJS from 'exceljs'
 import { existsSync, mkdirSync } from 'fs'
@@ -71,6 +72,16 @@ interface BonusDappResponseData {
   error?: string
 }
 
+interface Season5MintResult {
+  walletNumber: number
+  address: string
+  season5Points: number | null
+  mintStatus: 'minted' | 'skipped' | 'error' | 'already_has'
+  statusText: string
+  transactionHash?: string
+  reason?: string
+}
+
 /**
  * Система интерактивного меню для Soneium Automation Bot
  */
@@ -130,6 +141,11 @@ export class MenuSystem {
             description: 'Показать статистику по кошелькам и поинтам'
           },
           {
+            title: '🎖️  Минт бейджа за 5 сезон',
+            value: 'season5-mint',
+            description: 'Проверка и минт NFT бейджа за 5 сезон'
+          },
+          {
             title: '👋 Выход',
             value: 'exit',
             description: 'Завершить работу программы'
@@ -152,6 +168,8 @@ export class MenuSystem {
         await this.showTopupMenu()
       } else if (response['action'] === 'stats') {
         await this.showStatistics()
+      } else if (response['action'] === 'season5-mint') {
+        await this.showSeason5MintMenu()
       } else if (response['action'] === 'exit') {
         console.log('\n👋 До свидания!')
         process.exit(0)
@@ -1561,6 +1579,460 @@ export class MenuSystem {
     console.log(`📊 Процент успеха: ${((successCount / totalCount) * 100).toFixed(1)}%`)
     console.log('='.repeat(80))
     console.log('✅ ПОПОЛНЕНИЕ ЗАВЕРШЕНО!')
+    console.log('='.repeat(80))
+  }
+
+  /**
+   * Показывает меню минта бейджа за 5 сезон
+   */
+  private async showSeason5MintMenu (): Promise<void> {
+    try {
+      console.log('\n🎖️ МИНТ БЕЙДЖА ЗА 5 СЕЗОН')
+      console.log('='.repeat(80))
+
+      // Запрос максимальной цены газа
+      const gasResponse = await prompts({
+        type: 'number',
+        name: 'maxGasPrice',
+        message: 'Максимальная цена газа в ETH mainnet (Gwei):',
+        initial: 5,
+        min: 0.1,
+        max: 100,
+        increment: 0.1,
+        validate: (value: number) => {
+          if (value <= 0) return 'Значение должно быть больше 0'
+          if (value > 100) return 'Максимальное значение: 100 Gwei'
+          return true
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+
+      if (!gasResponse || gasResponse['maxGasPrice'] === undefined) {
+        this.handleCancel()
+        return
+      }
+
+      if (!gasResponse['maxGasPrice']) {
+        console.log('\n❌ Неверное значение газа. Попробуйте снова.')
+        await this.showMainMenu()
+        return
+      }
+
+      // Создаем GasChecker
+      const gasChecker = new GasChecker(gasResponse['maxGasPrice'])
+      console.log(`⛽ Лимит газа установлен: ${gasResponse['maxGasPrice']} Gwei`)
+
+      // Запрос минимальной задержки
+      const minDelay = await prompts({
+        type: 'number',
+        name: 'value',
+        message: 'Введите минимальную задержку между минтами (минуты):',
+        initial: 2,
+        min: 1,
+        validate: (value: number) => value >= 1 ? true : 'Задержка должна быть не менее 1 минуты'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+
+      if (!minDelay || minDelay['value'] === undefined) {
+        this.handleCancel()
+        return
+      }
+
+      // Запрос максимальной задержки
+      const maxDelay = await prompts({
+        type: 'number',
+        name: 'value',
+        message: 'Введите максимальную задержку между минтами (минуты):',
+        initial: 5,
+        min: minDelay['value'],
+        validate: (value: number) => value >= minDelay['value'] ? true : 'Максимальная задержка должна быть больше или равна минимальной'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+
+      if (!maxDelay || maxDelay['value'] === undefined) {
+        this.handleCancel()
+        return
+      }
+
+      console.log(`⏰ Задержки между минтами: ${minDelay['value']} - ${maxDelay['value']} минут`)
+      console.log('ℹ️  Задержка применяется только после успешного минта')
+
+      // Получаем все приватные ключи
+      const privateKeys = await this.getAllPrivateKeys()
+
+      if (privateKeys.length === 0) {
+        console.log('❌ Не найдено приватных ключей')
+        await this.showMainMenu()
+        return
+      }
+
+      // Сохраняем оригинальный порядок из keys.txt
+      const keysWithIndex = privateKeys.map((key, index) => ({
+        originalIndex: index,
+        privateKey: key
+      }))
+
+      console.log(`🎯 Найдено ${keysWithIndex.length} кошельков`)
+      console.log('🔄 Начинаем проверку и минт...')
+      console.log('⚠️  Для остановки нажмите Ctrl+C')
+      console.log('='.repeat(80))
+
+      // Выполняем минт для каждого кошелька
+      let successCount = 0
+      let skippedCount = 0
+      let errorCount = 0
+      const startTime = Date.now()
+      let previousMintSuccessful = false // Отслеживаем, был ли предыдущий минт успешным
+      const results: Season5MintResult[] = [] // Массив для хранения результатов
+
+      for (let i = 0; i < keysWithIndex.length; i++) {
+        const { originalIndex, privateKey } = keysWithIndex[i]!
+        const account = privateKeyToAccount(privateKey)
+
+        console.log(`\n🎖️ КОШЕЛЕК ${i + 1}/${keysWithIndex.length}:`)
+        console.log('-'.repeat(50))
+        console.log(`📍 Адрес: ${account.address}`)
+
+        try {
+          // Проверяем цену газа перед выполнением
+          console.log('⛽ Проверяем цену газа...')
+          await gasChecker.waitForGasPriceToDrop()
+
+          const result = await performSeason5BadgeMint(privateKey)
+
+          // Сбрасываем флаг перед проверкой результата
+          previousMintSuccessful = false
+
+          // Определяем статус для таблицы
+          let mintStatus: 'minted' | 'skipped' | 'error' | 'already_has'
+          let statusText: string
+
+          if (result.success) {
+            if (result.skipped) {
+              skippedCount++
+              if (result.reason?.includes('NFT уже есть')) {
+                mintStatus = 'already_has'
+                statusText = 'Minted'
+              } else if (result.reason?.includes('Минт будет доступен во 2 фазе')) {
+                // Кошельки с менее 80 поинтов
+                mintStatus = 'skipped'
+                statusText = 'Not Eligible'
+              } else {
+                mintStatus = 'skipped'
+                statusText = 'Skipped'
+              }
+              console.log(`⏭️  Пропущен: ${result.reason || 'Не указана причина'}`)
+            } else {
+              successCount++
+              previousMintSuccessful = true // Устанавливаем флаг успешного минта
+              mintStatus = 'minted'
+              statusText = 'Minted'
+              console.log('✅ Минт выполнен успешно!')
+              if (result.transactionHash) {
+                console.log(`🔗 TX Hash: ${result.transactionHash}`)
+                if (result.explorerUrl) {
+                  console.log(`🌐 Explorer: ${result.explorerUrl}`)
+                }
+              }
+            }
+          } else {
+            errorCount++
+            mintStatus = 'error'
+            statusText = 'Ошибка'
+            console.log(`❌ Ошибка: ${result.error || 'Неизвестная ошибка'}`)
+          }
+
+          // Сохраняем результат для таблицы (используем оригинальный индекс из keys.txt)
+          const tableResult: Season5MintResult = {
+            walletNumber: originalIndex + 1,
+            address: account.address,
+            season5Points: result.season5Points ?? null,
+            mintStatus,
+            statusText
+          }
+          if (result.transactionHash) {
+            tableResult.transactionHash = result.transactionHash
+          }
+          if (result.reason) {
+            tableResult.reason = result.reason
+          }
+          results.push(tableResult)
+        } catch (error) {
+          errorCount++
+          previousMintSuccessful = false
+          const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка'
+          console.log(`❌ Критическая ошибка: ${errorMessage}`)
+
+          // Сохраняем результат с ошибкой (используем оригинальный индекс из keys.txt)
+          results.push({
+            walletNumber: originalIndex + 1,
+            address: account.address,
+            season5Points: null,
+            mintStatus: 'error',
+            statusText: 'Ошибка',
+            reason: errorMessage
+          })
+        }
+
+        // Задержка между кошельками (только если предыдущий минт был успешным и это не последний кошелек)
+        if (i < keysWithIndex.length - 1 && previousMintSuccessful) {
+          const delayMinutes = Math.random() * (maxDelay['value'] - minDelay['value']) + minDelay['value']
+          const delayMs = delayMinutes * 60 * 1000
+
+          console.log(`😴 Задержка ${delayMinutes.toFixed(2)} минут (${Math.round(delayMs / 1000)} секунд) до следующего кошелька...`)
+          await new Promise(resolve => setTimeout(resolve, delayMs))
+        } else if (i < keysWithIndex.length - 1) {
+          // Небольшая пауза, если предыдущий минт не был успешным
+          console.log('⏳ Пауза 3 секунды...')
+          await new Promise(resolve => setTimeout(resolve, 3000))
+        }
+      }
+
+      // Сортируем результаты по оригинальному номеру кошелька из keys.txt
+      results.sort((a, b) => a.walletNumber - b.walletNumber)
+
+      // Показываем таблицу результатов
+      this.showSeason5MintTable(results)
+
+      // Предложение экспорта в Excel
+      const exportResponse = await prompts({
+        type: 'confirm',
+        name: 'value',
+        message: '💾 Экспортировать результаты минта в Excel файл?',
+        initial: true
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+
+      if (!exportResponse) {
+        this.handleCancel()
+        return
+      }
+
+      if (exportResponse['value']) {
+        try {
+          console.log('\n📝 Создание Excel файла...')
+          const filePath = await this.exportSeason5MintToExcel(results)
+          console.log('\n✅ Результаты успешно экспортированы!')
+          console.log(`📁 Путь к файлу: ${filePath}`)
+        } catch (error) {
+          console.error('\n❌ Ошибка при экспорте в Excel:',
+            error instanceof Error ? error.message : 'Неизвестная ошибка')
+        }
+      }
+
+      // Показываем финальную статистику
+      const endTime = Date.now()
+      const totalTime = (endTime - startTime) / 1000
+      this.showSeason5MintStatistics(successCount, skippedCount, errorCount, keysWithIndex.length, totalTime)
+
+      // Возвращаемся в главное меню
+      console.log('\n⏳ Возврат в главное меню через 5 секунд...')
+      await new Promise(resolve => setTimeout(resolve, 5000))
+      await this.showMainMenu()
+
+    } catch (error) {
+      console.error('\n❌ Ошибка при минте бейджей:', error instanceof Error ? error.message : 'Неизвестная ошибка')
+      console.log('\n⏳ Возврат в главное меню через 5 секунд...')
+      await new Promise(resolve => setTimeout(resolve, 5000))
+      await this.showMainMenu()
+    }
+  }
+
+  /**
+   * Показывает таблицу результатов минта бейджей
+   */
+  private showSeason5MintTable (results: Season5MintResult[]): void {
+    console.log('\n📊 РЕЗУЛЬТАТЫ МИНТА БЕЙДЖЕЙ ЗА 5 СЕЗОН')
+    console.log('='.repeat(80))
+
+    // Заголовок таблицы
+    console.log('┌──────┬─────────────────────────────────────────────────────────┬─────────┬──────────────────┐')
+    console.log('│   №  │ Адрес кошелька                                          │ Сезон 5 │ Статус минта     │')
+    console.log('├──────┼─────────────────────────────────────────────────────────┼─────────┼──────────────────┤')
+
+    // Данные таблицы
+    results.forEach((result) => {
+      const walletNumber = result.walletNumber.toString().padStart(3) + ' '
+      const address = result.address.length > 50 ? result.address.substring(0, 47) + '...' : result.address
+
+      // Форматируем поинты с цветовой индикацией
+      let points = 'N/A'.padStart(7)
+      if (result.season5Points !== null && result.season5Points !== undefined) {
+        points = result.season5Points.toString().padStart(7)
+        if (result.season5Points >= 84) {
+          points = `\x1b[32m${points}\x1b[0m` // Зеленый
+        } else if (result.season5Points >= 80) {
+          points = `\x1b[33m${points}\x1b[0m` // Желтый
+        } else {
+          points = `\x1b[31m${points}\x1b[0m` // Красный
+        }
+      }
+
+      // Форматируем статус с цветовой индикацией
+      let status = result.statusText.padEnd(16)
+      if (result.mintStatus === 'minted' || result.mintStatus === 'already_has') {
+        status = `\x1b[32m${status}\x1b[0m` // Зеленый
+      } else if (result.mintStatus === 'skipped') {
+        status = `\x1b[33m${status}\x1b[0m` // Желтый
+      } else {
+        status = `\x1b[31m${status}\x1b[0m` // Красный
+      }
+
+      console.log(`│ ${walletNumber} │ ${address.padEnd(55)} │ ${points} │ ${status} │`)
+    })
+
+    console.log('└──────┴─────────────────────────────────────────────────────────┴─────────┴──────────────────┘')
+  }
+
+  /**
+   * Экспортирует результаты минта бейджей в Excel файл
+   */
+  private async exportSeason5MintToExcel (results: Season5MintResult[]): Promise<string> {
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Минт бейджей Season 5')
+
+    // Настройка колонок
+    worksheet.columns = [
+      { header: '№', key: 'number', width: 5 },
+      { header: 'Адрес кошелька', key: 'address', width: 45 },
+      { header: 'Сезон 5', key: 'season5', width: 12 },
+      { header: 'Статус минта', key: 'status', width: 18 },
+      { header: 'TX Hash', key: 'txHash', width: 70 }
+    ]
+
+    // Форматирование заголовков
+    const headerRow = worksheet.getRow(1)
+    headerRow.font = { bold: true, size: 12 }
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' } // Светло-серый фон
+    }
+    headerRow.alignment = { horizontal: 'center', vertical: 'middle' }
+    headerRow.border = {
+      top: { style: 'thin' },
+      left: { style: 'thin' },
+      bottom: { style: 'thin' },
+      right: { style: 'thin' }
+    }
+
+    // Добавление данных с цветовой индикацией
+    results.forEach((result) => {
+      const row = worksheet.addRow({
+        number: result.walletNumber,
+        address: result.address,
+        season5: result.season5Points !== null ? result.season5Points : 'N/A',
+        status: result.statusText,
+        txHash: result.transactionHash || ''
+      })
+
+      // Цветовая индикация для Season 5
+      const season5Cell = row.getCell('season5')
+      if (result.season5Points !== null && result.season5Points !== undefined) {
+        if (result.season5Points >= 84) {
+          // Зеленый цвет для поинтов >= 84
+          season5Cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF90EE90' } // Светло-зеленый
+          }
+          season5Cell.font = { bold: true }
+        } else if (result.season5Points >= 80) {
+          // Желтый цвет для поинтов 80-83
+          season5Cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFFFFFE0' } // Светло-желтый
+          }
+          season5Cell.font = { bold: true }
+        } else {
+          // Красный цвет для поинтов < 80
+          season5Cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFFFB6C1' } // Светло-розовый/красный
+          }
+        }
+        season5Cell.alignment = { horizontal: 'center' }
+      } else {
+        season5Cell.alignment = { horizontal: 'center' }
+      }
+
+      // Цветовая индикация для статуса
+      const statusCell = row.getCell('status')
+      if (result.mintStatus === 'minted' || result.mintStatus === 'already_has') {
+        // Зеленый для заминченных
+        statusCell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF90EE90' } // Светло-зеленый
+        }
+        statusCell.font = { bold: true }
+      } else if (result.mintStatus === 'skipped') {
+        // Желтый для пропущенных
+        statusCell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFFFFFE0' } // Светло-желтый
+        }
+      } else {
+        // Красный для ошибок
+        statusCell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFFFB6C1' } // Светло-розовый/красный
+        }
+      }
+      statusCell.alignment = { horizontal: 'center' }
+
+      // Выравнивание числовых значений
+      const numberCell = row.getCell('number')
+      numberCell.alignment = { horizontal: 'center' }
+    })
+
+    // Заморозка заголовка при прокрутке
+    worksheet.views = [{
+      state: 'frozen',
+      ySplit: 1 // Заморозить первую строку
+    }]
+
+    // Создание папки exports если её нет
+    const exportsDir = join(process.cwd(), 'exports')
+    if (!existsSync(exportsDir)) {
+      mkdirSync(exportsDir, { recursive: true })
+    }
+
+    // Генерация имени файла с датой и временем
+    const now = new Date()
+    const timestamp = now.toISOString()
+      .replace(/[:.]/g, '-')
+      .slice(0, -5)
+      .replace('T', '_')
+    const fileName = `season5_mint_${timestamp}.xlsx`
+    const filePath = join(exportsDir, fileName)
+
+    // Сохранение файла
+    await workbook.xlsx.writeFile(filePath)
+
+    return filePath
+  }
+
+  /**
+   * Показывает статистику выполнения минта бейджей
+   */
+  private showSeason5MintStatistics (successCount: number, skippedCount: number, errorCount: number, totalCount: number, totalTime: number): void {
+    console.log('\n📊 ФИНАЛЬНАЯ СТАТИСТИКА МИНТА БЕЙДЖЕЙ')
+    console.log('='.repeat(80))
+    console.log(`📈 Всего кошельков: ${totalCount}`)
+    console.log(`✅ Успешно заминчено: ${successCount}`)
+    console.log(`⏭️  Пропущено: ${skippedCount}`)
+    console.log(`❌ Ошибок: ${errorCount}`)
+    console.log(`⏱️ Общее время: ${totalTime.toFixed(2)} секунд`)
+    if (totalCount > 0) {
+      console.log(`📊 Процент успеха: ${((successCount / totalCount) * 100).toFixed(1)}%`)
+    }
+    console.log('='.repeat(80))
+    console.log('✅ МИНТ БЕЙДЖЕЙ ЗАВЕРШЕН!')
     console.log('='.repeat(80))
   }
 
