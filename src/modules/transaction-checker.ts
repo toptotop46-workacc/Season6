@@ -56,7 +56,7 @@ export class TransactionChecker {
   private readonly CONFIG = {
     timeout: 10000,            // Timeout в мс
     retryAttempts: 10,         // Попытки повтора
-    pointsLimit: 81            // Лимит поинтов для статуса 'done' (>= 81 включительно)
+    pointsLimit: 84            // Лимит поинтов для статуса 'done' (>= 84 включительно)
   }
 
   constructor () {
@@ -232,7 +232,7 @@ export class TransactionChecker {
   private parseApiResponse (apiData: unknown): { count: number, max: number } {
     // Проверяем, что данные - это массив
     if (!Array.isArray(apiData) || apiData.length === 0) {
-      return { count: 0, max: 81 }
+      return { count: 0, max: 84 }
     }
 
     // Преобразуем данные в SeasonData
@@ -263,7 +263,7 @@ export class TransactionChecker {
     // Ищем данные сезона 6
     const season6Data = seasonData.find(item => item.season === 6)
     const totalScore = season6Data ? season6Data.totalScore : 0
-    const maxPoints = 81 // Максимальное значение поинтов
+    const maxPoints = 84 // Максимальное значение поинтов
 
     return {
       count: totalScore,
