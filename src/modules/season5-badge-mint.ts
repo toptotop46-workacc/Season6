@@ -233,6 +233,16 @@ function isMintPhase1Available (): boolean {
 }
 
 /**
+ * Проверяет доступность фазы 2 минта
+ */
+function isMintPhase2Available (): boolean {
+  const now = new Date()
+  const isAvailable = now >= MINT_PHASE2_START_DATE
+  logger.info(`Фаза 2 минта ${isAvailable ? 'доступна' : 'недоступна'} (дата начала: ${MINT_PHASE2_START_DATE.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })})`)
+  return isAvailable
+}
+
+/**
  * Проверяет eligibility для минта
  */
 function checkMintEligibility (totalScore: number): MintEligibilityResult {
@@ -264,6 +274,14 @@ function checkMintEligibility (totalScore: number): MintEligibilityResult {
 
   // Фаза 2: 80-83 поинтов (минт с 2 февраля 10:00 AM GMT+3)
   if (totalScore >= 80 && totalScore <= 83) {
+    const phase2Available = isMintPhase2Available()
+    if (phase2Available) {
+      return {
+        eligible: true,
+        phase: 2,
+        reason: 'Минт доступен сейчас (Фаза 2: 80-83 поинта)'
+      }
+    }
     const phase2DateStr = MINT_PHASE2_START_DATE.toLocaleDateString('ru-RU', {
       day: 'numeric',
       month: 'long',
