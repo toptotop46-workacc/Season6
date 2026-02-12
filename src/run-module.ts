@@ -15,11 +15,9 @@ import { performLiquidityManagement as performStargateLiquidity } from './module
 import { performDepositManagement } from './modules/untitled-bank.js'
 import { performRevoke } from './modules/revoke.js'
 import { performRedButtonNoob } from './modules/redbutton-noob.js'
-import { performBonusHarkan } from './modules/bonus_harkan.js'
-import { performBonusVelodrome } from './modules/bonus_velodrome.js'
-import { performBonusWowmax } from './modules/bonus_wowmax.js'
-import { performBonusSurflayer } from './modules/bonus_surflayer.js'
-import { performNFTPods } from './modules/nft_pods.js'
+import { performHarkan } from './modules/harkan.js'
+import { performVelodrome } from './modules/velodrome.js'
+import { performWowmax } from './modules/wowmax.js'
 
 // Интерфейс для результата выполнения модуля
 interface ModuleResult {
@@ -122,30 +120,20 @@ const modules: Record<string, Module> = {
     description: 'Выполнение 1-3 транзакций в режиме noob с задержкой 10-20 секунд',
     execute: performRedButtonNoob
   },
-  'bonus-harkan': {
-    name: 'Bonus Harkan',
-    description: 'Проверка и выполнение бонусного квеста Harkan',
-    execute: performBonusHarkan
+  'harkan': {
+    name: 'Harkan',
+    description: 'Один спин в Harkan (cyber-roulette)',
+    execute: performHarkan
   },
-  'bonus-velodrome': {
-    name: 'Bonus Velodrome',
-    description: 'Проверка и выполнение бонусного квеста Velodrome',
-    execute: performBonusVelodrome
+  'velodrome': {
+    name: 'Velodrome',
+    description: 'Свап ETH → USDC.e (0.1–1% от баланса) через Velodrome',
+    execute: performVelodrome
   },
-  'bonus-wowmax': {
-    name: 'Bonus WOWMAX',
-    description: 'Проверка и выполнение бонусного квеста WOWMAX',
-    execute: performBonusWowmax
-  },
-  'bonus-surflayer': {
-    name: 'Bonus Surflayer',
-    description: 'Проверка и выполнение бонусного квеста Surflayer',
-    execute: performBonusSurflayer
-  },
-  'nft-pods': {
-    name: 'NFT Pods',
-    description: 'Проверка и минт NFT Pods',
-    execute: performNFTPods
+  'wowmax': {
+    name: 'WOWMAX',
+    description: 'Свап ETH → USDC.e (0.1–1% от баланса) через WOWMAX',
+    execute: performWowmax
   }
 }
 

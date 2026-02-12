@@ -1,5 +1,6 @@
 import { privateKeyToAccount } from 'viem/accounts'
 import { TransactionChecker } from './modules/transaction-checker.js'
+import { POINTS_LIMIT_SEASON } from './season-config.js'
 import { logger } from './logger.js'
 import { GasChecker } from './gas-checker.js'
 
@@ -15,11 +16,9 @@ import { performLiquidityManagement as performStargateLiquidity } from './module
 import { performDepositManagement } from './modules/untitled-bank.js'
 import { performRevoke } from './modules/revoke.js'
 import { performRedButtonNoob } from './modules/redbutton-noob.js'
-import { performBonusHarkan } from './modules/bonus_harkan.js'
-import { performBonusVelodrome } from './modules/bonus_velodrome.js'
-import { performBonusWowmax } from './modules/bonus_wowmax.js'
-import { performBonusSurflayer } from './modules/bonus_surflayer.js'
-import { performNFTPods } from './modules/nft_pods.js'
+import { performHarkan } from './modules/harkan.js'
+import { performVelodrome } from './modules/velodrome.js'
+import { performWowmax } from './modules/wowmax.js'
 
 // Интерфейс для результата выполнения модуля
 interface ModuleResult {
@@ -177,29 +176,19 @@ export class ParallelExecutor {
       execute: performRedButtonNoob
     },
     {
-      name: 'Bonus Harkan',
-      description: 'Проверка и выполнение бонусного квеста Harkan',
-      execute: performBonusHarkan
+      name: 'Harkan',
+      description: 'Один спин в Harkan (cyber-roulette)',
+      execute: performHarkan
     },
     {
-      name: 'Bonus Velodrome',
-      description: 'Проверка и выполнение бонусного квеста Velodrome',
-      execute: performBonusVelodrome
+      name: 'Velodrome',
+      description: 'Свап ETH → USDC.e (0.1–1% от баланса) через Velodrome',
+      execute: performVelodrome
     },
     {
-      name: 'Bonus WOWMAX',
-      description: 'Проверка и выполнение бонусного квеста WOWMAX',
-      execute: performBonusWowmax
-    },
-    {
-      name: 'Bonus Surflayer',
-      description: 'Проверка и выполнение бонусного квеста Surflayer',
-      execute: performBonusSurflayer
-    },
-    {
-      name: 'NFT Pods',
-      description: 'Проверка и минт NFT Pods',
-      execute: performNFTPods
+      name: 'WOWMAX',
+      description: 'Свап ETH → USDC.e (0.1–1% от баланса) через WOWMAX',
+      execute: performWowmax
     }
   ]
 
@@ -378,14 +367,14 @@ export class ParallelExecutor {
 
         // Если все проверенные в этом батче завершены, но еще есть кошельки для проверки
         if (activeWallets.length === 0 && checkedCount < shuffled.length) {
-          console.log(`⚠️  Все кошельки в батче #${attempt} имеют >= 81 поинтов, проверяем следующий батч...`)
+          console.log(`⚠️  Все кошельки в батче #${attempt} имеют >= ${POINTS_LIMIT_SEASON} поинтов, проверяем следующий батч...`)
         }
       }
 
       // 4. Если не нашли достаточно активных кошельков после всех проверок
       if (allActiveWallets.length === 0) {
         console.log(`⚠️  Не найдено активных кошельков после проверки ${checkedCount} кошельков`)
-        console.log('📊 Все проверенные кошельки имеют >= 81 поинтов, пропускаем итерацию')
+        console.log(`📊 Все проверенные кошельки имеют >= ${POINTS_LIMIT_SEASON} поинтов, пропускаем итерацию`)
         this.currentIterationWallets = []
         return
       }

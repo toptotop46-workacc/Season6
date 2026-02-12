@@ -10,6 +10,7 @@ import axios from 'axios'
 import ExcelJS from 'exceljs'
 import { existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
+import { CURRENT_SEASON, POINTS_LIMIT_SEASON } from './season-config.js'
 
 // Интерфейсы для типизации данных статистики
 interface SeasonData {
@@ -38,12 +39,12 @@ interface WalletStatisticsResult {
   success: boolean
   status: 'done' | 'not_done' | 'error'
   error?: string
-  season6Score: number
+  season7Score: number
   bonusQuests: {
-    harkan: string
-    surflayer: string
-    velodrome: string
-    wowmax: string
+    startale: string
+    sakefinance: string
+    arkada: string
+    captain: string
   }
   pointsCount?: number
   originalIndex?: number // Исходный индекс кошелька для правильной нумерации
@@ -682,11 +683,11 @@ export class MenuSystem {
   /**
    * Получает данные кошелька через API с retry-логикой и случайными прокси
    */
-  // Конфигурация для статистики (как в transaction-checker)
+  // Конфигурация для статистики (порог из season-config)
   private readonly STATS_CONFIG = {
     timeout: 10000,            // Timeout в мс
     retryAttempts: 10,         // Попытки повтора
-    pointsLimit: 100,          // Лимит поинтов для статуса 'done' (включительно)
+    pointsLimit: POINTS_LIMIT_SEASON,  // Лимит поинтов для статуса 'done' (из season-config)
     baseUrl: 'https://portal.soneium.org/api'
   }
 
@@ -716,11 +717,11 @@ export class MenuSystem {
     worksheet.columns = [
       { header: '№', key: 'number', width: 5 },
       { header: 'Адрес кошелька', key: 'address', width: 45 },
-      { header: 'Сезон 6', key: 'season6', width: 12 },
-      { header: 'Harkan', key: 'harkan', width: 15 },
-      { header: 'SurfLayer', key: 'surflayer', width: 15 },
-      { header: 'Velodrome', key: 'velodrome', width: 15 },
-      { header: 'WOWMAX', key: 'wowmax', width: 15 }
+      { header: 'Сезон 7', key: 'season7', width: 12 },
+      { header: 'Startale', key: 'startale', width: 15 },
+      { header: 'Sake Finance', key: 'sakefinance', width: 15 },
+      { header: 'Arkada', key: 'arkada', width: 15 },
+      { header: 'Captain', key: 'captain', width: 15 }
     ]
 
     // Форматирование заголовков
@@ -747,40 +748,38 @@ export class MenuSystem {
       const row = worksheet.addRow({
         number: (result.originalIndex ?? 0) + 1,
         address: result.address,
-        season6: result.season6Score ?? 0,
-        harkan: result.bonusQuests.harkan,
-        surflayer: result.bonusQuests.surflayer,
-        velodrome: result.bonusQuests.velodrome,
-        wowmax: result.bonusQuests.wowmax
+        season7: result.season7Score ?? 0,
+        startale: result.bonusQuests.startale,
+        sakefinance: result.bonusQuests.sakefinance,
+        arkada: result.bonusQuests.arkada,
+        captain: result.bonusQuests.captain
       })
 
-      // Цветовая индикация для Season 6
-      const season6Cell = row.getCell('season6')
-      const season6Score = result.season6Score ?? 0
+      // Цветовая индикация для Сезона 7
+      const season7Cell = row.getCell('season7')
+      const season7Score = result.season7Score ?? 0
 
-      if (season6Score >= 80) {
-        // Зеленый цвет для поинтов >= 80
-        season6Cell.fill = {
+      if (season7Score >= POINTS_LIMIT_SEASON) {
+        season7Cell.fill = {
           type: 'pattern',
           pattern: 'solid',
           fgColor: { argb: 'FF90EE90' } // Светло-зеленый
         }
-        season6Cell.font = { bold: true }
-      } else if (season6Score >= 76) {
-        // Желтый цвет для поинтов 76-79
-        season6Cell.fill = {
+        season7Cell.font = { bold: true }
+      } else if (season7Score >= 80) {
+        season7Cell.fill = {
           type: 'pattern',
           pattern: 'solid',
           fgColor: { argb: 'FFFFFFE0' } // Светло-желтый
         }
-        season6Cell.font = { bold: true }
+        season7Cell.font = { bold: true }
       } else {
-        // Красный цвет для поинтов < 76
-        season6Cell.fill = {
+        season7Cell.fill = {
           type: 'pattern',
           pattern: 'solid',
           fgColor: { argb: 'FFFFB6C1' } // Светло-розовый/красный
         }
+        season7Cell.font = { bold: true }
       }
 
       // Цветовая индикация для заданий
@@ -826,15 +825,15 @@ export class MenuSystem {
         cell.alignment = { horizontal: 'center' }
       }
 
-      formatQuestCell(row.getCell('harkan'), result.bonusQuests.harkan)
-      formatQuestCell(row.getCell('surflayer'), result.bonusQuests.surflayer)
-      formatQuestCell(row.getCell('velodrome'), result.bonusQuests.velodrome)
-      formatQuestCell(row.getCell('wowmax'), result.bonusQuests.wowmax)
+      formatQuestCell(row.getCell('startale'), result.bonusQuests.startale)
+      formatQuestCell(row.getCell('sakefinance'), result.bonusQuests.sakefinance)
+      formatQuestCell(row.getCell('arkada'), result.bonusQuests.arkada)
+      formatQuestCell(row.getCell('captain'), result.bonusQuests.captain)
 
       // Выравнивание числовых значений
       const numberCell = row.getCell('number')
       numberCell.alignment = { horizontal: 'center' }
-      season6Cell.alignment = { horizontal: 'center' }
+      season7Cell.alignment = { horizontal: 'center' }
     })
 
     // Заморозка заголовка при прокрутке
@@ -1001,27 +1000,25 @@ export class MenuSystem {
     return { success: false, error: `Все ${this.STATS_CONFIG.retryAttempts} попыток неудачны. Последняя ошибка: ${lastError}` }
   }
 
-  // Парсинг заданий сезона 6 из bonus-dapp данных
+  // Парсинг заданий текущего сезона из bonus-dapp данных
   private parseBonusQuests (bonusData: BonusDappQuest[]): {
-    harkan: string
-    surflayer: string
-    velodrome: string
-    wowmax: string
+    startale: string
+    sakefinance: string
+    arkada: string
+    captain: string
   } {
-    // Фильтруем только задания сезона 6
-    const season6Quests = bonusData.filter((item) => item.season === 6)
+    const seasonQuests = bonusData.filter((item) => item.season === CURRENT_SEASON)
 
-    // Ищем нужные задания по их id (Season 6)
-    const harkanQuest = season6Quests.find((item) => item.id === 'harkan_6')
-    const surflayerQuest = season6Quests.find((item) => item.id === 'surflayer_6')
-    const velodromeQuest = season6Quests.find((item) => item.id === 'velodrome_6')
-    const wowmaxQuest = season6Quests.find((item) => item.id === 'wowmax_6')
+    const startaleQuest = seasonQuests.find((item) => item.id === 'startale_7')
+    const sakefinanceQuest = seasonQuests.find((item) => item.id === 'sakefinance_7')
+    const arkadaQuest = seasonQuests.find((item) => item.id === 'arkada_7')
+    const captainQuest = seasonQuests.find((item) => item.id === 'captain_7')
 
     return {
-      harkan: harkanQuest ? this.formatQuestProgress(harkanQuest.quests) : 'N/A',
-      surflayer: surflayerQuest ? this.formatQuestProgress(surflayerQuest.quests) : 'N/A',
-      velodrome: velodromeQuest ? this.formatQuestProgress(velodromeQuest.quests) : 'N/A',
-      wowmax: wowmaxQuest ? this.formatQuestProgress(wowmaxQuest.quests) : 'N/A'
+      startale: startaleQuest ? this.formatQuestProgress(startaleQuest.quests) : 'N/A',
+      sakefinance: sakefinanceQuest ? this.formatQuestProgress(sakefinanceQuest.quests) : 'N/A',
+      arkada: arkadaQuest ? this.formatQuestProgress(arkadaQuest.quests) : 'N/A',
+      captain: captainQuest ? this.formatQuestProgress(captainQuest.quests) : 'N/A'
     }
   }
 
@@ -1127,11 +1124,10 @@ export class MenuSystem {
                 this.fetchBonusDappDataWithRetry(address)
               ])
 
-              // Обработка данных о поинтам (Season 6)
-              let season6Score = 0
+              // Обработка данных о поинтах (текущий сезон)
+              let season7Score = 0
               let status: 'done' | 'not_done' | 'error' = 'error'
 
-              // Проверяем на ошибку (если вернулся ApiResponseData с ошибкой)
               if (!Array.isArray(walletData) && walletData.error) {
                 completedCount++
                 updateProgress()
@@ -1140,34 +1136,30 @@ export class MenuSystem {
                   success: false,
                   status: 'error' as const,
                   error: walletData.error,
-                  season6Score: 0,
+                  season7Score: 0,
                   bonusQuests: {
-                    harkan: 'N/A',
-                    surflayer: 'N/A',
-                    velodrome: 'N/A',
-                    wowmax: 'N/A'
+                    startale: 'N/A',
+                    sakefinance: 'N/A',
+                    arkada: 'N/A',
+                    captain: 'N/A'
                   },
                   originalIndex
                 }
               }
 
-              // Проверяем, что данные - это массив
               if (Array.isArray(walletData) && walletData.length > 0) {
-                // Извлекаем данные сезона 6
-                const season6Data = walletData.find((item: SeasonData) => item.season === 6)
-                season6Score = season6Data ? this.parseScore(season6Data.totalScore) : 0
-                status = season6Score >= this.STATS_CONFIG.pointsLimit ? 'done' : 'not_done'
+                const seasonDataItem = walletData.find((item: SeasonData) => item.season === CURRENT_SEASON)
+                season7Score = seasonDataItem ? this.parseScore(seasonDataItem.totalScore) : 0
+                status = season7Score >= this.STATS_CONFIG.pointsLimit ? 'done' : 'not_done'
               } else {
-                // Если нет данных API, считаем это как 0 поинтов
                 status = 'not_done'
               }
 
-              // Обработка данных о доп заданиях
               let bonusQuests = {
-                harkan: 'N/A',
-                surflayer: 'N/A',
-                velodrome: 'N/A',
-                wowmax: 'N/A'
+                startale: 'N/A',
+                sakefinance: 'N/A',
+                arkada: 'N/A',
+                captain: 'N/A'
               }
 
               if (Array.isArray(bonusData) && bonusData.length > 0) {
@@ -1183,9 +1175,9 @@ export class MenuSystem {
                 address,
                 success: true,
                 status,
-                season6Score,
+                season7Score,
                 bonusQuests,
-                pointsCount: season6Score,
+                pointsCount: season7Score,
                 originalIndex
               }
             } catch (error) {
@@ -1196,12 +1188,12 @@ export class MenuSystem {
                 success: false,
                 status: 'error' as const,
                 error: error instanceof Error ? error.message : 'Неизвестная ошибка',
-                season6Score: 0,
+                season7Score: 0,
                 bonusQuests: {
-                  harkan: 'N/A',
-                  surflayer: 'N/A',
-                  velodrome: 'N/A',
-                  wowmax: 'N/A'
+                  startale: 'N/A',
+                  sakefinance: 'N/A',
+                  arkada: 'N/A',
+                  captain: 'N/A'
                 },
                 originalIndex
               }
@@ -1225,7 +1217,7 @@ export class MenuSystem {
 
       // Заголовок таблицы
       console.log('┌──────┬─────────────────────────────────────────────────────────┬─────────┬──────────────┬──────────────┬──────────────┬──────────────┐')
-      console.log('│   №  │ Адрес кошелька                                          │ Сезон 6 │ Harkan       │ SurfLayer    │ Velodrome    │ WOWMAX       │')
+      console.log('│   №  │ Адрес кошелька                                          │ Сезон 7 │ Startale     │ Sake Finance  │ Arkada       │ Captain      │')
       console.log('├──────┼─────────────────────────────────────────────────────────┼─────────┼──────────────┼──────────────┼──────────────┼──────────────┤')
 
       // Данные таблицы
@@ -1233,50 +1225,43 @@ export class MenuSystem {
         const walletNumber = ((result.originalIndex ?? 0) + 1).toString().padStart(3) + ' '
         const address = result.address.length > 50 ? result.address.substring(0, 47) + '...' : result.address
 
-        // Форматируем Season 6 с цветовой индикацией
-        let season6 = result.season6Score !== undefined ? result.season6Score.toString().padStart(7) : 'N/A'.padStart(7)
-        if (result.season6Score !== undefined) {
-          if (result.season6Score >= 80) {
-            // Зеленый цвет для поинтов >= 80
-            season6 = `\x1b[32m${season6}\x1b[0m`
-          } else if (result.season6Score >= 76) {
-            // Желтый цвет для поинтов 76-79
-            season6 = `\x1b[33m${season6}\x1b[0m`
+        let season7 = result.season7Score !== undefined ? result.season7Score.toString().padStart(7) : 'N/A'.padStart(7)
+        if (result.season7Score !== undefined) {
+          if (result.season7Score >= POINTS_LIMIT_SEASON) {
+            season7 = `\x1b[32m${season7}\x1b[0m`
+          } else if (result.season7Score >= 80) {
+            season7 = `\x1b[33m${season7}\x1b[0m`
           } else {
-            // Красный цвет для поинтов < 76
-            season6 = `\x1b[31m${season6}\x1b[0m`
+            season7 = `\x1b[31m${season7}\x1b[0m`
           }
         }
 
-        // Форматируем задания с цветовой индикацией
         const formatQuest = (quest: string): string => {
           if (quest === 'N/A') {
             return quest.padStart(12)
           } else {
-            // Проверяем прогресс (формат "X/Y")
             const match = quest.match(/^(\d+)\/(\d+)$/)
             if (match) {
               const completed = parseInt(match[1]!, 10)
               const required = parseInt(match[2]!, 10)
               if (completed >= required) {
-                // Зеленый для выполненных (X >= Y)
                 return `\x1b[32m${quest.padStart(12)}\x1b[0m`
               } else if (completed === 0) {
-                return `\x1b[31m${quest.padStart(12)}\x1b[0m` // Красный для 0/X
+                return `\x1b[31m${quest.padStart(12)}\x1b[0m`
               } else {
-                return `\x1b[33m${quest.padStart(12)}\x1b[0m` // Желтый для частичного прогресса
+                return `\x1b[33m${quest.padStart(12)}\x1b[0m`
               }
             }
             return quest.padStart(12)
           }
         }
 
-        const harkan = formatQuest(result.bonusQuests.harkan)
-        const surflayer = formatQuest(result.bonusQuests.surflayer)
-        const velodrome = formatQuest(result.bonusQuests.velodrome)
-        const wowmax = formatQuest(result.bonusQuests.wowmax)
+        const startale = formatQuest(result.bonusQuests.startale)
+        const sakefinance = formatQuest(result.bonusQuests.sakefinance)
+        const arkada = formatQuest(result.bonusQuests.arkada)
+        const captain = formatQuest(result.bonusQuests.captain)
 
-        console.log(`│ ${walletNumber} │ ${address.padEnd(55)} │ ${season6} │ ${harkan} │ ${surflayer} │ ${velodrome} │ ${wowmax} │`)
+        console.log(`│ ${walletNumber} │ ${address.padEnd(55)} │ ${season7} │ ${startale} │ ${sakefinance} │ ${arkada} │ ${captain} │`)
       })
 
       console.log('└──────┴─────────────────────────────────────────────────────────┴─────────┴──────────────┴──────────────┴──────────────┴──────────────┘')

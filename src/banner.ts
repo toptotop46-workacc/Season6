@@ -52,7 +52,7 @@ ${this.COLORS.reset}`
    */
   private static createSubtitle (): string {
     const subtitle = `
-${this.COLORS.yellow}${this.COLORS.bright}                         AUTOMATION BOT v6.0.0${this.COLORS.reset}
+${this.COLORS.yellow}${this.COLORS.bright}                         AUTOMATION BOT v7.0.0${this.COLORS.reset}
 ${this.COLORS.dim}                     https://t.me/privatekey7${this.COLORS.reset}`
     return subtitle
   }

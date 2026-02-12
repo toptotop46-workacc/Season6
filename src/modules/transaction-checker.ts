@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { logger } from '../logger.js'
 import { ProxyManager } from '../proxy-manager.js'
+import { CURRENT_SEASON, POINTS_LIMIT_SEASON } from '../season-config.js'
 
 // Типы
 
@@ -56,7 +57,7 @@ export class TransactionChecker {
   private readonly CONFIG = {
     timeout: 10000,            // Timeout в мс
     retryAttempts: 10,         // Попытки повтора
-    pointsLimit: 84            // Лимит поинтов для статуса 'done' (>= 84 включительно)
+    pointsLimit: POINTS_LIMIT_SEASON  // Лимит поинтов для статуса 'done' (из season-config)
   }
 
   constructor () {
@@ -232,7 +233,7 @@ export class TransactionChecker {
   private parseApiResponse (apiData: unknown): { count: number, max: number } {
     // Проверяем, что данные - это массив
     if (!Array.isArray(apiData) || apiData.length === 0) {
-      return { count: 0, max: 84 }
+      return { count: 0, max: POINTS_LIMIT_SEASON }
     }
 
     // Преобразуем данные в SeasonData
@@ -260,10 +261,10 @@ export class TransactionChecker {
       }
     })
 
-    // Ищем данные сезона 6
-    const season6Data = seasonData.find(item => item.season === 6)
-    const totalScore = season6Data ? season6Data.totalScore : 0
-    const maxPoints = 84 // Максимальное значение поинтов
+    // Ищем данные текущего сезона
+    const seasonDataItem = seasonData.find(item => item.season === CURRENT_SEASON)
+    const totalScore = seasonDataItem ? seasonDataItem.totalScore : 0
+    const maxPoints = POINTS_LIMIT_SEASON
 
     return {
       count: totalScore,
