@@ -1,6 +1,6 @@
 {
   "name": "soneium-automation",
-  "version": "6.0.0",
+  "version": "7.0.0",
   "description": "Автоматизация операций в сети Soneium с случайным выбором модулей и ключей",
   "type": "module",
   "main": "dist/index.js",
@@ -23,11 +23,9 @@
     "untitled-bank": "tsx src/run-module.ts untitled-bank",
     "revoke": "tsx src/run-module.ts revoke",
     "redbutton-noob": "tsx src/run-module.ts redbutton-noob",
-    "bonus-harkan": "tsx src/run-module.ts bonus-harkan",
-    "bonus-velodrome": "tsx src/run-module.ts bonus-velodrome",
-    "bonus-wowmax": "tsx src/run-module.ts bonus-wowmax",
-    "bonus-surflayer": "tsx src/run-module.ts bonus-surflayer",
-    "nft-pods": "tsx src/run-module.ts nft-pods"
+    "harkan": "tsx src/run-module.ts harkan",
+    "velodrome": "tsx src/run-module.ts velodrome",
+    "wowmax": "tsx src/run-module.ts wowmax"
   },
   "keywords": [
     "soneium",
@@ -39,7 +37,7 @@
   "author": "Soneium Automation",
   "license": "MIT",
   "dependencies": {
-    "axios": "^1.13.2",
+    "axios": "^1.13.5",
     "exceljs": "^4.4.0",
     "fast-deep-equal": "^3.1.3",
     "https-proxy-agent": "^7.0.6",
@@ -68,6 +66,7 @@
     "glob": "^11.1.0",
     "rimraf": "^6.1.0",
     "lodash.isequal": "npm:fast-deep-equal@^3.1.3",
-    "unzipper": "^0.12.3"
+    "unzipper": "^0.12.3",
+    "@isaacs/brace-expansion": "^5.0.1"
   }
 }
