@@ -25,7 +25,8 @@
     "redbutton-noob": "tsx src/run-module.ts redbutton-noob",
     "harkan": "tsx src/run-module.ts harkan",
     "velodrome": "tsx src/run-module.ts velodrome",
-    "wowmax": "tsx src/run-module.ts wowmax"
+    "wowmax": "tsx src/run-module.ts wowmax",
+    "captain-checkin": "tsx src/run-module.ts captain-checkin"
   },
   "keywords": [
     "soneium",

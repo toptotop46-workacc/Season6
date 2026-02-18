@@ -5,7 +5,7 @@ import { SoneiumCollector } from './modules/collector.js'
 import { performWalletTopup } from './wallet-topup.js'
 import { GasChecker } from './gas-checker.js'
 import { ProxyManager } from './proxy-manager.js'
-import { performSeason5BadgeMint } from './modules/season5-badge-mint.js'
+import { performSeason6BadgeMint } from './modules/season6-badge-mint.js'
 import axios from 'axios'
 import ExcelJS from 'exceljs'
 import { existsSync, mkdirSync } from 'fs'
@@ -73,10 +73,10 @@ interface BonusDappResponseData {
   error?: string
 }
 
-interface Season5MintResult {
+interface Season6MintResult {
   walletNumber: number
   address: string
-  season5Points: number | null
+  season6Points: number | null
   mintStatus: 'minted' | 'skipped' | 'error' | 'already_has'
   statusText: string
   transactionHash?: string
@@ -142,9 +142,9 @@ export class MenuSystem {
             description: 'Показать статистику по кошелькам и поинтам'
           },
           {
-            title: '🎖️  Минт бейджа за 5 сезон',
-            value: 'season5-mint',
-            description: 'Проверка и минт NFT бейджа за 5 сезон'
+            title: '🎖️  Минт бейджа за 6 сезон',
+            value: 'season6-mint',
+            description: 'Проверка и минт NFT бейджа за 6 сезон'
           },
           {
             title: '👋 Выход',
@@ -169,8 +169,8 @@ export class MenuSystem {
         await this.showTopupMenu()
       } else if (response['action'] === 'stats') {
         await this.showStatistics()
-      } else if (response['action'] === 'season5-mint') {
-        await this.showSeason5MintMenu()
+      } else if (response['action'] === 'season6-mint') {
+        await this.showSeason6MintMenu()
       } else if (response['action'] === 'exit') {
         console.log('\n👋 До свидания!')
         process.exit(0)
@@ -1570,7 +1570,7 @@ export class MenuSystem {
   /**
    * Показывает меню минта бейджа за 5 сезон
    */
-  private async showSeason5MintMenu (): Promise<void> {
+  private async showSeason6MintMenu (): Promise<void> {
     try {
       console.log('\n🎖️ МИНТ БЕЙДЖА ЗА 5 СЕЗОН')
       console.log('='.repeat(80))
@@ -1668,7 +1668,7 @@ export class MenuSystem {
       let errorCount = 0
       const startTime = Date.now()
       let previousMintSuccessful = false // Отслеживаем, был ли предыдущий минт успешным
-      const results: Season5MintResult[] = [] // Массив для хранения результатов
+      const results: Season6MintResult[] = [] // Массив для хранения результатов
 
       for (let i = 0; i < keysWithIndex.length; i++) {
         const { originalIndex, privateKey } = keysWithIndex[i]!
@@ -1683,7 +1683,7 @@ export class MenuSystem {
           console.log('⛽ Проверяем цену газа...')
           await gasChecker.waitForGasPriceToDrop()
 
-          const result = await performSeason5BadgeMint(privateKey)
+          const result = await performSeason6BadgeMint(privateKey)
 
           // Сбрасываем флаг перед проверкой результата
           previousMintSuccessful = false
@@ -1728,10 +1728,10 @@ export class MenuSystem {
           }
 
           // Сохраняем результат для таблицы (используем оригинальный индекс из keys.txt)
-          const tableResult: Season5MintResult = {
+          const tableResult: Season6MintResult = {
             walletNumber: originalIndex + 1,
             address: account.address,
-            season5Points: result.season5Points ?? null,
+            season6Points: result.season6Points ?? null,
             mintStatus,
             statusText
           }
@@ -1752,7 +1752,7 @@ export class MenuSystem {
           results.push({
             walletNumber: originalIndex + 1,
             address: account.address,
-            season5Points: null,
+            season6Points: null,
             mintStatus: 'error',
             statusText: 'Ошибка',
             reason: errorMessage
@@ -1777,7 +1777,7 @@ export class MenuSystem {
       results.sort((a, b) => a.walletNumber - b.walletNumber)
 
       // Показываем таблицу результатов
-      this.showSeason5MintTable(results)
+      this.showSeason6MintTable(results)
 
       // Предложение экспорта в Excel
       const exportResponse = await prompts({
@@ -1796,7 +1796,7 @@ export class MenuSystem {
       if (exportResponse['value']) {
         try {
           console.log('\n📝 Создание Excel файла...')
-          const filePath = await this.exportSeason5MintToExcel(results)
+          const filePath = await this.exportSeason6MintToExcel(results)
           console.log('\n✅ Результаты успешно экспортированы!')
           console.log(`📁 Путь к файлу: ${filePath}`)
         } catch (error) {
@@ -1808,7 +1808,7 @@ export class MenuSystem {
       // Показываем финальную статистику
       const endTime = Date.now()
       const totalTime = (endTime - startTime) / 1000
-      this.showSeason5MintStatistics(successCount, skippedCount, errorCount, keysWithIndex.length, totalTime)
+      this.showSeason6MintStatistics(successCount, skippedCount, errorCount, keysWithIndex.length, totalTime)
 
       // Возвращаемся в главное меню
       console.log('\n⏳ Возврат в главное меню через 5 секунд...')
@@ -1826,7 +1826,7 @@ export class MenuSystem {
   /**
    * Показывает таблицу результатов минта бейджей
    */
-  private showSeason5MintTable (results: Season5MintResult[]): void {
+  private showSeason6MintTable (results: Season6MintResult[]): void {
     console.log('\n📊 РЕЗУЛЬТАТЫ МИНТА БЕЙДЖЕЙ ЗА 5 СЕЗОН')
     console.log('='.repeat(80))
 
@@ -1842,11 +1842,11 @@ export class MenuSystem {
 
       // Форматируем поинты с цветовой индикацией
       let points = 'N/A'.padStart(7)
-      if (result.season5Points !== null && result.season5Points !== undefined) {
-        points = result.season5Points.toString().padStart(7)
-        if (result.season5Points >= 84) {
+      if (result.season6Points !== null && result.season6Points !== undefined) {
+        points = result.season6Points.toString().padStart(7)
+        if (result.season6Points >= 84) {
           points = `\x1b[32m${points}\x1b[0m` // Зеленый
-        } else if (result.season5Points >= 80) {
+        } else if (result.season6Points >= 80) {
           points = `\x1b[33m${points}\x1b[0m` // Желтый
         } else {
           points = `\x1b[31m${points}\x1b[0m` // Красный
@@ -1872,15 +1872,15 @@ export class MenuSystem {
   /**
    * Экспортирует результаты минта бейджей в Excel файл
    */
-  private async exportSeason5MintToExcel (results: Season5MintResult[]): Promise<string> {
+  private async exportSeason6MintToExcel (results: Season6MintResult[]): Promise<string> {
     const workbook = new ExcelJS.Workbook()
-    const worksheet = workbook.addWorksheet('Минт бейджей Season 5')
+    const worksheet = workbook.addWorksheet('Минт бейджей Season 6')
 
     // Настройка колонок
     worksheet.columns = [
       { header: '№', key: 'number', width: 5 },
       { header: 'Адрес кошелька', key: 'address', width: 45 },
-      { header: 'Сезон 5', key: 'season5', width: 12 },
+      { header: 'Сезон 6', key: 'season6', width: 12 },
       { header: 'Статус минта', key: 'status', width: 18 },
       { header: 'TX Hash', key: 'txHash', width: 70 }
     ]
@@ -1906,41 +1906,38 @@ export class MenuSystem {
       const row = worksheet.addRow({
         number: result.walletNumber,
         address: result.address,
-        season5: result.season5Points !== null ? result.season5Points : 'N/A',
+        season6: result.season6Points !== null ? result.season6Points : 'N/A',
         status: result.statusText,
         txHash: result.transactionHash || ''
       })
 
-      // Цветовая индикация для Season 5
-      const season5Cell = row.getCell('season5')
-      if (result.season5Points !== null && result.season5Points !== undefined) {
-        if (result.season5Points >= 84) {
-          // Зеленый цвет для поинтов >= 84
-          season5Cell.fill = {
+      // Цветовая индикация для Season 6
+      const season6Cell = row.getCell('season6')
+      if (result.season6Points !== null && result.season6Points !== undefined) {
+        if (result.season6Points >= 84) {
+          season6Cell.fill = {
             type: 'pattern',
             pattern: 'solid',
             fgColor: { argb: 'FF90EE90' } // Светло-зеленый
           }
-          season5Cell.font = { bold: true }
-        } else if (result.season5Points >= 80) {
-          // Желтый цвет для поинтов 80-83
-          season5Cell.fill = {
+          season6Cell.font = { bold: true }
+        } else if (result.season6Points >= 80) {
+          season6Cell.fill = {
             type: 'pattern',
             pattern: 'solid',
             fgColor: { argb: 'FFFFFFE0' } // Светло-желтый
           }
-          season5Cell.font = { bold: true }
+          season6Cell.font = { bold: true }
         } else {
-          // Красный цвет для поинтов < 80
-          season5Cell.fill = {
+          season6Cell.fill = {
             type: 'pattern',
             pattern: 'solid',
             fgColor: { argb: 'FFFFB6C1' } // Светло-розовый/красный
           }
         }
-        season5Cell.alignment = { horizontal: 'center' }
+        season6Cell.alignment = { horizontal: 'center' }
       } else {
-        season5Cell.alignment = { horizontal: 'center' }
+        season6Cell.alignment = { horizontal: 'center' }
       }
 
       // Цветовая индикация для статуса
@@ -1993,7 +1990,7 @@ export class MenuSystem {
       .replace(/[:.]/g, '-')
       .slice(0, -5)
       .replace('T', '_')
-    const fileName = `season5_mint_${timestamp}.xlsx`
+    const fileName = `season6_mint_${timestamp}.xlsx`
     const filePath = join(exportsDir, fileName)
 
     // Сохранение файла
@@ -2005,7 +2002,7 @@ export class MenuSystem {
   /**
    * Показывает статистику выполнения минта бейджей
    */
-  private showSeason5MintStatistics (successCount: number, skippedCount: number, errorCount: number, totalCount: number, totalTime: number): void {
+  private showSeason6MintStatistics (successCount: number, skippedCount: number, errorCount: number, totalCount: number, totalTime: number): void {
     console.log('\n📊 ФИНАЛЬНАЯ СТАТИСТИКА МИНТА БЕЙДЖЕЙ')
     console.log('='.repeat(80))
     console.log(`📈 Всего кошельков: ${totalCount}`)

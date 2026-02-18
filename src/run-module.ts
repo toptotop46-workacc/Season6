@@ -18,6 +18,7 @@ import { performRedButtonNoob } from './modules/redbutton-noob.js'
 import { performHarkan } from './modules/harkan.js'
 import { performVelodrome } from './modules/velodrome.js'
 import { performWowmax } from './modules/wowmax.js'
+import { performCaptainCheckin } from './modules/captain-checkin.js'
 
 // Интерфейс для результата выполнения модуля
 interface ModuleResult {
@@ -134,6 +135,11 @@ const modules: Record<string, Module> = {
     name: 'WOWMAX',
     description: 'Свап ETH → USDC.e (0.1–1% от баланса) через WOWMAX',
     execute: performWowmax
+  },
+  'captain-checkin': {
+    name: 'Captain Check-in',
+    description: 'Ежедневный check-in в Captain',
+    execute: performCaptainCheckin
   }
 }
 
